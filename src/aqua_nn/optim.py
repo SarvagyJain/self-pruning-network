@@ -16,37 +16,56 @@ class Adam:
         self.beta1 = beta1
         self.beta2 = beta2
         self.eps = eps
-        self.step_count = 0
+        self.t = 0
 
         self.m = [np.zeros_like(p.data) for p in self.parameters]
         self.v = [np.zeros_like(p.data) for p in self.parameters]
 
     def zero_grad(self):
-        for parameter in self.parameters:
-            parameter.grad.fill(0.0)
+        """Reset parameter gradients before the next training batch."""
+        for param in self.parameters:
+            param.grad = np.zeros_like(param.data)
 
     def step(self):
-        self.step_count += 1
+        """Update parameters while keeping masked weights permanently zero."""
+        self.t += 1
 
-        for i, parameter in enumerate(self.parameters):
-            grad = parameter.grad
+        for i, param in enumerate(self.parameters):
+            mask = getattr(param, "_mask", None)
 
+            if mask is not None:
+                mask = np.asarray(mask, dtype=np.float64)
+
+                if mask.shape != param.data.shape:
+                    raise ValueError("Parameter mask shape mismatch")
+
+                # Ignore gradients for masked connections.
+                grad = param.grad * mask
+            else:
+                grad = param.grad
+
+            # Adam first and second moments.
             self.m[i] = (
                 self.beta1 * self.m[i]
                 + (1.0 - self.beta1) * grad
             )
             self.v[i] = (
                 self.beta2 * self.v[i]
-                + (1.0 - self.beta2) * grad**2
+                + (1.0 - self.beta2) * (grad ** 2)
             )
 
-            m_hat = self.m[i] / (
-                1.0 - self.beta1**self.step_count
-            )
-            v_hat = self.v[i] / (
-                1.0 - self.beta2**self.step_count
-            )
+            if mask is not None:
+                # Remove stale momentum from masked connections.
+                self.m[i] *= mask
+                self.v[i] *= mask
 
-            parameter.data -= (
-                self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
-            )
+            # Bias correction.
+            m_hat = self.m[i] / (1.0 - self.beta1 ** self.t)
+            v_hat = self.v[i] / (1.0 - self.beta2 ** self.t)
+
+            # Adam parameter update.
+            param.data -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
+
+            if mask is not None:
+                # A masked weight must remain exactly zero.
+                param.data *= mask
