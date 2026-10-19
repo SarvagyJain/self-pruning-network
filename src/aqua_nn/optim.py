@@ -21,6 +21,11 @@ class Adam:
         self.m = [np.zeros_like(p.data) for p in self.parameters]
         self.v = [np.zeros_like(p.data) for p in self.parameters]
 
+    @property
+    def step_count(self):
+        """Return the number of optimizer update steps performed."""
+        return self.t
+
     def zero_grad(self):
         """Reset parameter gradients before the next training batch."""
         for param in self.parameters:
@@ -64,7 +69,9 @@ class Adam:
             v_hat = self.v[i] / (1.0 - self.beta2 ** self.t)
 
             # Adam parameter update.
-            param.data -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
+            param.data -= self.lr * m_hat / (
+                np.sqrt(v_hat) + self.eps
+            )
 
             if mask is not None:
                 # A masked weight must remain exactly zero.
