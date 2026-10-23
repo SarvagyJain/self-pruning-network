@@ -16,3 +16,11 @@ __pycache__/
 # Generated experiment outputs at the repository root
 /results/raw/*
 /results/figures/*
+
+# Generated checkpoints and sweep outputs under src/results.
+# Keep tracked baseline CSV/JSON records, but don't track binary model checkpoints.
+/src/results/raw/*.npz
+/src/results/raw/pruning_sweep.*
+/src/results/raw/pruning_pareto_frontier.csv
+/src/results/raw/sparse_inference_benchmark.*
+/src/results/figures/*.png
