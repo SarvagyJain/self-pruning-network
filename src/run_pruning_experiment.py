@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = ROOT / "results" / "raw"
 DEFAULT_CONFIG = {
     "dataset": "digits",
+    "split_seed": 42,
     "seeds": [42],
     "epochs": 30,
     "batch_size": 64,
@@ -310,6 +311,7 @@ def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_v
                 metadata={
                     "dataset": config["dataset"],
                     "seed": seed,
+                    "split_seed": int(config.get("split_seed", seed)),
                     "target_sparsity": float(target_sparsity),
                     "method": config["method"],
                     "scope": config["scope"],
@@ -336,6 +338,7 @@ def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_v
     result = {
         "dataset": config["dataset"],
         "seed": int(seed),
+        "split_seed": int(config.get("split_seed", seed)),
         "method": config["method"],
         "scope": config["scope"],
         "importance": config["importance"],
@@ -398,19 +401,20 @@ def main():
 
     all_results = []
     histories = {}
-    for seed in config["seeds"]:
-        data = load_dataset_splits(
-            dataset=config["dataset"],
-            seed=int(seed),
+    split_seed = int(config.get("split_seed", 42))
+    data = load_dataset_splits(
+        dataset=config["dataset"],
+        seed=split_seed,
             validation_fraction=float(config["validation_fraction"]),
             test_fraction=float(config["test_fraction"]),
         )
-        X_train, y_train, X_val, y_val, X_test, y_test = data
-        print(
-            f"Loaded {config['dataset']}: train={len(X_train)}, "
-            f"validation={len(X_val)}, test={len(X_test)}, features={X_train.shape[1]}"
-        )
+    X_train, y_train, X_val, y_val, X_test, y_test = data
+    print(
+        f"Loaded {config['dataset']} split_seed={split_seed}: train={len(X_train)}, "
+        f"validation={len(X_val)}, test={len(X_test)}, features={X_train.shape[1]}"
+    )
 
+    for seed in config["seeds"]:
         for target_sparsity in config["target_sparsities"]:
             print("\n" + "=" * 72)
             print(
