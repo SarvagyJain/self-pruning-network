@@ -39,7 +39,7 @@ The implementation explores these questions:
 
 ### Engineering scope
 
-- **Core numerical stack:** NumPy
+- **Core numerical stack:** NumPy for training/autodiff; SciPy CSR for sparse inference
 - **Dataset loading:** scikit-learn only; the model, autodiff, optimizer, loss, and pruning logic are implemented in this repository
 - **Model:** fully connected MLP for 10-class digit classification
 - **Training:** mini-batch training with Adam
@@ -366,6 +366,7 @@ A Pareto frontier identifies trade-offs among the measured objectives; it does n
 ```text
 .
 ├── README.md
+├── config.json
 ├── pyproject.toml
 ├── uv.lock
 ├── .python-version
@@ -380,7 +381,7 @@ A Pareto frontier identifies trade-offs among the measured objectives; it does n
 │   │   │   └── dataset.py             # Digit loading, normalization, split
 │   │   ├── layers.py                  # Dense layer, weight masks, ReLU wrapper
 │   │   ├── losses.py                  # Softmax cross-entropy and accuracy
-│   │   ├── models.py                  # 64 -> 128 -> 64 -> 10 MLP
+│   │   ├── models.py                  # Configurable-input MLP; default 64 -> 128 -> 64 -> 10
 │   │   ├── checkpoint.py              # Save/load weights, biases and pruning masks
 │   │   ├── optim.py                   # Adam and mask-aware updates
 │   │   └── pruning.py                 # Scores, cubic schedule, global pruning
@@ -392,6 +393,12 @@ A Pareto frontier identifies trade-offs among the measured objectives; it does n
     ├── test_dataset.py
     ├── test_masking.py
     ├── test_model.py
+    ├── test_checkpoint.py
+    ├── test_dataset_splits.py
+    ├── test_layerwise_pruning.py
+    ├── test_pruning_runner.py
+    ├── test_sparse_benchmark.py
+    ├── test_sparse_inference.py
     ├── test_pruning.py
     ├── test_tensor.py
     ├── test_tensor_milestone3.py
@@ -447,12 +454,7 @@ The baseline metrics include best and final validation results, training setting
 uv run python src/run_pruning_experiment.py
 ```
 
-The script trains models for target sparsities 0%, 30%, 50%, 70%, and 90%, then writes:
-
-- `results/raw/pruning_sweep.csv`
-- `results/raw/pruning_sweep.json`
-
-The JSON includes experiment settings, per-target summary metrics, and per-epoch training histories.
+The default config runs target sparsities 0%, 30%, 50%, 70%, and 90%. Results for each configuration are preserved under results/raw/experiments/<run-label>/, including per-seed CSV, summary CSV, and JSON history. Root-level pruning_sweep.csv/json files are convenient aliases for the most recent run. Validation-selected, target-sparsity checkpoints are saved under results/raw/checkpoints/.
 
 ### Configurable pruning experiments
 
@@ -499,7 +501,7 @@ When extending the library, add tests for the behavior being introduced. In part
 
 ## Outputs and generated files
 
-CSV and JSON outputs are intended to make experiments inspectable without loading model objects. The baseline script writes best and final model weights and biases to NumPy `.npz` archives. The pruning runner saves a validation-selected checkpoint for each seed/target pair under results/raw/checkpoints/. A checkpoint is eligible for selection only after its requested sparsity has been reached; the test set is then evaluated on that checkpoint.
+CSV and JSON outputs are intended to make experiments inspectable without loading model objects. The baseline script writes best and final model weights and biases to NumPy `.npz` archives. The pruning runner saves a validation-selected checkpoint for each named configuration/seed/target under results/raw/checkpoints/. A checkpoint is eligible for selection only after its requested sparsity has been reached; the test set is then evaluated on that checkpoint. Named experiment summaries are preserved under results/raw/experiments/<run-label>/.
 
 Model checkpoints and generated plots are excluded from the standard source-control flow. They can be recreated by running the scripts; if a particular artifact needs to be shared, a release asset or dedicated artifact store is usually more suitable than committing generated binaries to the source tree.
 
@@ -517,7 +519,7 @@ Model checkpoints and generated plots are excluded from the standard source-cont
 
 ### Still requires an actual run on your machine
 
-- Run the tests on the configured Python environment and confirm the branch passes in CI
+- Run the experiment suite on your own configured Python environment as a final environment-specific check; CI is configured for Python 3.12 on Linux and Windows
 - Generate sparse latency and memory measurements on your target CPU; RSS deltas can be noisy, and the benchmark reports this limitation
 - Run several seeds (for example, 42, 43, 44) and inspect mean and standard deviation rather than relying on one seed
 - Execute the Fashion-MNIST experiment and record its results; the loader and runner support it, but no Fashion-MNIST accuracy or performance result is claimed here
