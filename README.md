@@ -407,7 +407,7 @@ A Pareto frontier identifies trade-offs among the measured objectives; it does n
 
 ## Environment setup
 
-The project requires Python 3.12 or newer and uses `uv` for environment and dependency management. Direct dependencies are NumPy, scikit-learn, and Matplotlib; Pytest is used for development tests.
+The project requires Python 3.12 or newer and uses `uv` for environment and dependency management. Direct dependencies are NumPy, scikit-learn, SciPy, and Matplotlib; Pytest is used for development tests.
 
 From the repository root:
 
