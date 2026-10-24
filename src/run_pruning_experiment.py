@@ -405,9 +405,9 @@ def main():
     data = load_dataset_splits(
         dataset=config["dataset"],
         seed=split_seed,
-            validation_fraction=float(config["validation_fraction"]),
-            test_fraction=float(config["test_fraction"]),
-        )
+        validation_fraction=float(config["validation_fraction"]),
+        test_fraction=float(config["test_fraction"]),
+    )
     X_train, y_train, X_val, y_val, X_test, y_test = data
     print(
         f"Loaded {config['dataset']} split_seed={split_seed}: train={len(X_train)}, "
