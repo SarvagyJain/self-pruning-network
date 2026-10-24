@@ -127,7 +127,7 @@ def batch_from_validation(X, batch_size):
 def benchmark_checkpoint(checkpoint_path, batch_sizes, warmup, repeats):
     model, metadata = load_model_checkpoint(checkpoint_path)
     dataset_name = metadata.get("dataset", "digits")
-    seed = int(metadata.get("seed", 42))
+    seed = int(metadata.get("split_seed", metadata.get("seed", 42)))
     X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_splits(
         dataset=dataset_name,
         seed=seed,
