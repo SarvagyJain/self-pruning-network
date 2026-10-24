@@ -464,7 +464,7 @@ def main():
     with (RESULTS_DIR / "pruning_sweep.json").open("w", encoding="utf-8") as file:
         json.dump(report, file, indent=2)
 
-    print("\\nPruning sweep complete.")
+    print("\nPruning sweep complete.")
     print(f"Run label: {_run_label(config)}")
     print(f"Per-run CSV: {run_csv}")
     print(f"Summary CSV: {summary_csv}")
