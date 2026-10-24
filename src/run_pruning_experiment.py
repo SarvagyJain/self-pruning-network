@@ -200,7 +200,8 @@ def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_v
     final_step = epochs * steps_per_epoch
     global_step = 0
     history = []
-    best_val_accuracy = -1.0
+    best_val_accuracy = -1.0  # Best validation accuracy among target-sparsity checkpoints.
+    best_any_epoch_val_accuracy = -1.0
     best_epoch = 0
     start_time = time.perf_counter()
 
@@ -272,8 +273,24 @@ def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_v
             f"sparsity={sparsity_info['weight_sparsity']:.2%}"
         )
 
-        if validation["accuracy"] > best_val_accuracy:
-            best_val_accuracy = validation["accuracy"]
+        best_any_epoch_val_accuracy = max(
+            best_any_epoch_val_accuracy, float(validation["accuracy"])
+        )
+        # Only select checkpoints that actually reached the requested sparsity.
+        # For gradually pruned runs this usually starts at the final schedule step;
+        # for one-shot runs it starts after the prune-at epoch. This avoids reporting
+        # the accuracy of a dense/partially pruned checkpoint as the target result.
+        total_weight_count = sparsity_info["total_weights"]
+        rounding_tolerance = (
+            1.0 / total_weight_count if total_weight_count else 0.0
+        ) + (1.5 / total_weight_count if total_weight_count else 0.0)
+        target_reached = (
+            float(target_sparsity) == 0.0
+            or sparsity_info["weight_sparsity"] + rounding_tolerance
+            >= float(target_sparsity)
+        )
+        if target_reached and validation["accuracy"] > best_val_accuracy:
+            best_val_accuracy = float(validation["accuracy"])
             best_epoch = epoch + 1
             save_model_checkpoint(
                 model,
@@ -287,6 +304,9 @@ def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_v
                     "importance": config["importance"],
                     "best_epoch": best_epoch,
                     "best_validation_accuracy": best_val_accuracy,
+                    "best_any_epoch_val_accuracy": best_any_epoch_val_accuracy,
+                    "validation_fraction": float(config["validation_fraction"]),
+                    "test_fraction": float(config["test_fraction"]),
                 },
             )
 
@@ -305,6 +325,7 @@ def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_v
         "target_sparsity": float(target_sparsity),
         "best_epoch": int(best_epoch),
         "best_val_accuracy": float(best_val_accuracy),
+        "best_any_epoch_val_accuracy": float(best_any_epoch_val_accuracy),
         "final_val_accuracy": float(final_validation["accuracy"]),
         "final_val_loss": float(final_validation["loss"]),
         "test_accuracy": float(test_metrics["accuracy"]),
