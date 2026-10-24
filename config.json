@@ -1,5 +1,6 @@
 {
   "dataset": "digits",
+  "split_seed": 42,
   "seeds": [42],
   "epochs": 30,
   "batch_size": 64,
