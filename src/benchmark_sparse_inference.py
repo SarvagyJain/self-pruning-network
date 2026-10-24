@@ -117,7 +117,10 @@ def benchmark_checkpoint(checkpoint_path, batch_sizes, warmup, repeats):
     dataset_name = metadata.get("dataset", "digits")
     seed = int(metadata.get("seed", 42))
     X_train, y_train, X_val, y_val, X_test, y_test = load_dataset_splits(
-        dataset=dataset_name, seed=seed
+        dataset=dataset_name,
+        seed=seed,
+        validation_fraction=float(metadata.get("validation_fraction", 0.1)),
+        test_fraction=float(metadata.get("test_fraction", 0.1)),
     )
     if X_val.shape[1] != model.layer1.weight.data.shape[0]:
         raise ValueError(
@@ -176,8 +179,12 @@ def benchmark_checkpoint(checkpoint_path, batch_sizes, warmup, repeats):
         sparse_peak = traced_peak_bytes(
             lambda batch: model.predict_logits_sparse(batch, sparse_weights), x
         )
+        try:
+            checkpoint_label = str(checkpoint_path.resolve().relative_to(ROOT))
+        except ValueError:
+            checkpoint_label = str(checkpoint_path.resolve())
         rows.append({
-            "checkpoint": str(checkpoint_path.relative_to(ROOT)),
+            "checkpoint": checkpoint_label,
             "dataset": dataset_name,
             "seed": seed,
             "target_sparsity": float(metadata.get("target_sparsity", 0.0)),
