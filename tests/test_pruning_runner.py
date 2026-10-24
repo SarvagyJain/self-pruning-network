@@ -28,7 +28,7 @@ def test_small_pruning_run_saves_checkpoint_at_requested_sparsity(tmp_path, monk
         X_train, y_train, X_val, y_val, X_test, y_test,
     )
 
-    checkpoint_path = tmp_path / "checkpoints" / "digits_seed9_target0p50.npz"
+    checkpoint_path = tmp_path / "checkpoints" / "digits_gradual_global_magnitude_seed9_target0p50.npz"
     assert checkpoint_path.exists()
     model, metadata = load_model_checkpoint(checkpoint_path)
     measured_sparsity = 1.0 - (
