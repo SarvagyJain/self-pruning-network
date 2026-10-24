@@ -12,5 +12,6 @@
   "importance": "magnitude",
   "schedule": "cubic",
   "warmup_epochs": 5,
-  "prune_at_epoch": 10
+  "prune_at_epoch": 10,
+  "run_name": ""
 }
