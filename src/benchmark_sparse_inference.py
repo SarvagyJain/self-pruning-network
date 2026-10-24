@@ -129,8 +129,12 @@ def benchmark_checkpoint(checkpoint_path, batch_sizes, warmup, repeats):
         )
 
     dense_layers = (model.layer1, model.layer2, model.layer3)
+    # The checkpoint already stores pruned weights as exact zeros, so reuse those
+    # dense arrays rather than multiplying by masks inside every timed call.
+    dense_weights = [layer.weight.data for layer in dense_layers]
     dense_weight_bytes = sum(layer.weight.data.nbytes for layer in dense_layers)
     dense_parameter_bytes = sum(parameter.data.nbytes for parameter in model.parameters())
+    dense_mask_bytes = sum(layer.mask.nbytes for layer in dense_layers)
     rss_before_sparse = current_rss_bytes()
     conversion_start = time.perf_counter()
     sparse_weights = model.to_sparse_weights()
@@ -161,7 +165,8 @@ def benchmark_checkpoint(checkpoint_path, batch_sizes, warmup, repeats):
     rows = []
     for batch_size in batch_sizes:
         x = batch_from_validation(X_val, batch_size)
-        dense_logits = model.predict_logits_dense(x)
+        dense_call = lambda batch: model.predict_logits_dense(batch, dense_weights=dense_weights)
+        dense_logits = dense_call(x)
         sparse_logits = model.predict_logits_sparse(x, sparse_weights)
         np.testing.assert_allclose(sparse_logits, dense_logits, rtol=1e-9, atol=1e-9)
         predictions_match = bool(
@@ -169,13 +174,13 @@ def benchmark_checkpoint(checkpoint_path, batch_sizes, warmup, repeats):
         )
 
         dense_median, dense_p90 = latency_ms(
-            model.predict_logits_dense, x, warmup, repeats
+            dense_call, x, warmup, repeats
         )
         sparse_median, sparse_p90 = latency_ms(
             lambda batch: model.predict_logits_sparse(batch, sparse_weights),
             x, warmup, repeats,
         )
-        dense_peak = traced_peak_bytes(model.predict_logits_dense, x)
+        dense_peak = traced_peak_bytes(dense_call, x)
         sparse_peak = traced_peak_bytes(
             lambda batch: model.predict_logits_sparse(batch, sparse_weights), x
         )
@@ -206,6 +211,7 @@ def benchmark_checkpoint(checkpoint_path, batch_sizes, warmup, repeats):
             "dense_traced_peak_bytes": dense_peak,
             "sparse_traced_peak_bytes": sparse_peak,
             "dense_weight_storage_bytes": int(dense_weight_bytes),
+            "dense_mask_storage_bytes_if_retained": int(dense_mask_bytes),
             "dense_parameter_storage_bytes_including_biases": int(dense_parameter_bytes),
             "csr_weight_storage_bytes_including_indices": int(csr_weight_bytes),
             "csr_parameter_storage_bytes_including_biases": int(csr_total_with_bias_bytes),
