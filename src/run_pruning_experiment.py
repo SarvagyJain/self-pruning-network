@@ -121,10 +121,10 @@ def validate_config(config: dict) -> None:
         raise ValueError("importance must be 'magnitude' or 'taylor'")
     if config["schedule"] != "cubic":
         raise ValueError("Only the cubic schedule is currently implemented")
-    if not 0 <= int(config["warmup_epochs"]) < int(config["epochs"]):
-        raise ValueError("warmup_epochs must be >= 0 and less than epochs")
-    if not 1 <= int(config["prune_at_epoch"]) <= int(config["epochs"]):
-        raise ValueError("prune_at_epoch must be between 1 and epochs")
+    if config["method"] == "gradual" and not 0 <= int(config["warmup_epochs"]) < int(config["epochs"]):
+        raise ValueError("warmup_epochs must be >= 0 and less than epochs for gradual pruning")
+    if config["method"] == "one_shot" and not 1 <= int(config["prune_at_epoch"]) <= int(config["epochs"]):
+        raise ValueError("prune_at_epoch must be between 1 and epochs for one-shot pruning")
 
 
 def evaluate(model, X, y, batch_size=512):
@@ -316,6 +316,11 @@ def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_v
     test_metrics = evaluate(best_model, X_test, y_test, batch_size=batch_size)
     sparsity_info = measure_sparsity(best_model)
 
+    try:
+        checkpoint_label = str(checkpoint_path.resolve().relative_to(ROOT))
+    except ValueError:
+        checkpoint_label = str(checkpoint_path.resolve())
+
     result = {
         "dataset": config["dataset"],
         "seed": int(seed),
@@ -331,7 +336,7 @@ def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_v
         "test_accuracy": float(test_metrics["accuracy"]),
         "elapsed_seconds": round(elapsed_seconds, 3),
         **sparsity_info,
-        "checkpoint_path": str(checkpoint_path.relative_to(ROOT)),
+        "checkpoint_path": checkpoint_label,
     }
     return result, history
 
