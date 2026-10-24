@@ -1,0 +1,18 @@
+{
+  "dataset": "digits",
+  "split_seed": 42,
+  "seeds": [42],
+  "epochs": 30,
+  "batch_size": 64,
+  "learning_rate": 0.001,
+  "validation_fraction": 0.1,
+  "test_fraction": 0.1,
+  "target_sparsities": [0.0, 0.3, 0.5, 0.7, 0.9],
+  "method": "gradual",
+  "scope": "global",
+  "importance": "magnitude",
+  "schedule": "cubic",
+  "warmup_epochs": 5,
+  "prune_at_epoch": 10,
+  "run_name": ""
+}

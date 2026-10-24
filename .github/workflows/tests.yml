@@ -1,0 +1,69 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install project and test dependencies
+        run: uv sync --all-groups
+
+      - name: Compile Python source
+        run: uv run python -m compileall -q src tests
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  smoke-experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install project and test dependencies
+        run: uv sync --all-groups
+
+      - name: Run small end-to-end pruning sweep
+        run: uv run python src/run_pruning_experiment.py --epochs 3 --warmup-epochs 1 --batch-size 512 --target-sparsities 0,0.5 --seeds 42 --run-name ci_smoke
+
+      - name: Benchmark saved checkpoints
+        run: uv run python src/benchmark_sparse_inference.py --checkpoint results/raw/checkpoints/ci_smoke_seed42_target0p00.npz --checkpoint results/raw/checkpoints/ci_smoke_seed42_target0p50.npz --batch-sizes 1,64 --warmup 2 --repeats 10 --output results/raw/smoke_benchmark.csv
+
+      - name: Upload smoke experiment artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sparse-inference-smoke-results
+          path: |
+            results/raw/smoke_benchmark.csv
+            results/raw/smoke_benchmark.json
+            results/raw/experiments/ci_smoke/pruning_sweep.csv
+            results/raw/experiments/ci_smoke/pruning_sweep_runs.csv
+            results/raw/experiments/ci_smoke/pruning_sweep.json
+          if-no-files-found: error

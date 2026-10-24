@@ -39,13 +39,13 @@ The implementation explores these questions:
 
 ### Engineering scope
 
-- **Core numerical stack:** NumPy
+- **Core numerical stack:** NumPy for training/autodiff; SciPy CSR for sparse inference
 - **Dataset loading:** scikit-learn only; the model, autodiff, optimizer, loss, and pruning logic are implemented in this repository
 - **Model:** fully connected MLP for 10-class digit classification
 - **Training:** mini-batch training with Adam
 - **Pruning:** global, weight-magnitude-based pruning with a cubic target-sparsity schedule
 - **Experiment analysis:** CSV/JSON summaries, plots, and a Pareto-frontier calculation
-- **Sparse deployment:** a planned next milestone, not a completed capability
+- **Sparse deployment:** CSR inference, equivalence tests, and a benchmark script are implemented; measured results must be generated on the target machine
 
 ## End-to-end architecture
 
@@ -159,7 +159,7 @@ The training code follows this sequence for every mini-batch:
 9. **Validate:** at the end of the epoch, evaluate loss and accuracy on validation data that is not used for the gradient updates.
 10. **Record:** store per-epoch metrics and, for baseline training, save the best-validation and final-epoch model weights.
 
-The baseline and pruning scripts use a fixed seed so that runs can be repeated with the same code and dependency environment. Reproducibility does not mean results are guaranteed to be identical across all hardware, numerical-library builds, or future code changes.
+The baseline script retains its original fixed seed. The pruning runner supports one or multiple configurable seeds. Reproducibility does not mean results are guaranteed to be identical across all hardware, numerical-library builds, or future code changes.
 
 ## Automatic differentiation
 
@@ -216,9 +216,9 @@ The loader uses scikit-learn's `load_digits` dataset:
 - Pixels are flattened into 64 features and divided by 16, giving values from 0 to 1
 - Labels are the 10 digit classes, 0–9
 
-A seeded random permutation creates an 80/20 train/validation split. With this dataset and default settings, the split is 1,438 training examples and 359 validation examples.
+The legacy load_smoke_dataset helper retains a deterministic 80/20 train/validation split for quick baseline runs. The pruning runner uses the newer load_dataset_splits loader, which creates stratified train/validation/test splits (80/10/10 by default), with the test set reserved for evaluating the validation-selected checkpoint. The pruning runner supports the digits dataset and a Fashion-MNIST loader fetched from OpenML. Fashion-MNIST requires network access on the first load.
 
-The split is deterministic but not stratified. There is no separate held-out test set in the current scripts. This dataset is useful for fast development and implementation checks; results should not be treated as evidence of production generalization.
+The digits dataset is useful for fast development and implementation checks; even with a held-out test split, it is not evidence of production generalization.
 
 ## Adam optimizer
 
@@ -308,11 +308,26 @@ On each pruning training step:
 6. The layer multiplies its weight data by the new mask so pruned weights become exactly zero.
 7. The optimizer respects the mask during subsequent updates.
 
-The current global pruning implementation never revives already-pruned connections within a run. Biases are not pruned.
+The global and layer-wise pruning implementations never revive already-pruned connections within a run. Biases are not pruned.
+
+### Sparse-aware inference
+
+The MLP now exposes predict_logits_dense and predict_logits_sparse. The sparse path converts each masked weight matrix to SciPy CSR once, then performs sparse-weight/dense-activation multiplication at inference time. The returned CSR matrices are snapshots: rebuild them after training or changing a mask. The benchmark reuses the same input batch, checks numeric logits and exact class predictions before timing, warms both paths, reports median and p90 latency, and keeps CSR conversion time separate from inference. Results are hardware- and batch-size-dependent; CSR is not assumed to be faster for this small MLP.
+
+A CI smoke benchmark was run on a GitHub-hosted Ubuntu runner using a 3-epoch digits run, 2 warm-up calls, and 10 timed repeats. These small-repeat measurements validate the pipeline only; they are not a deployment benchmark.
+
+| Target sparsity | Batch size | Dense median | CSR median | Dense/CSR ratio |
+|---:|---:|---:|---:|---:|
+| 0% | 1 | 0.0115 ms | 0.0681 ms | 0.168× |
+| 0% | 64 | 0.0592 ms | 0.2735 ms | 0.217× |
+| 50% | 1 | 0.0110 ms | 0.0593 ms | 0.185× |
+| 50% | 64 | 0.0736 ms | 0.1761 ms | 0.418× |
+
+A ratio below 1× means CSR was slower in this smoke run. This is expected to depend on matrix size, batch size, SciPy/BLAS builds, and hardware. It shows why sparsity or estimated storage reduction alone must not be presented as an inference speedup. The CI workflow uploads the full CSV/JSON smoke report as the artifact named sparse-inference-smoke-results.
 
 ## Experiments and current observations
 
-The pruning script trains five experiments from the same seed and configuration:
+The default config evaluates five target sparsities under the same model seed and data split:
 
 | Target sparsity | Meaning |
 |---:|---|
@@ -326,7 +341,7 @@ Shared settings: seed 42, 30 epochs, batch size 64, learning rate 0.001, Adam op
 
 ### Results from the recorded local sweep
 
-The following values were reported by a local development run. The generated pruning sweep files are not necessarily tracked in Git, so rerun the experiment to regenerate and verify them in your environment.
+The following values are historical results from the original local 80/20 smoke-split run, before the new 80/10/10 held-out-test runner. They are useful as a reference but are not results from the updated multi-seed runner or the sparse benchmark. Rerun the experiment to regenerate metrics with the current implementation.
 
 | Target sparsity | Best validation accuracy | Final validation accuracy | Active weights | Total weights |
 |---:|---:|---:|---:|---:|
@@ -362,6 +377,7 @@ A Pareto frontier identifies trade-offs among the measured objectives; it does n
 ```text
 .
 ├── README.md
+├── config.json
 ├── pyproject.toml
 ├── uv.lock
 ├── .python-version
@@ -376,16 +392,24 @@ A Pareto frontier identifies trade-offs among the measured objectives; it does n
 │   │   │   └── dataset.py             # Digit loading, normalization, split
 │   │   ├── layers.py                  # Dense layer, weight masks, ReLU wrapper
 │   │   ├── losses.py                  # Softmax cross-entropy and accuracy
-│   │   ├── models.py                  # 64 -> 128 -> 64 -> 10 MLP
+│   │   ├── models.py                  # Configurable-input MLP; default 64 -> 128 -> 64 -> 10
+│   │   ├── checkpoint.py              # Save/load weights, biases and pruning masks
 │   │   ├── optim.py                   # Adam and mask-aware updates
 │   │   └── pruning.py                 # Scores, cubic schedule, global pruning
 │   ├── train_baseline.py              # Baseline training and metrics
-│   ├── run_pruning_experiment.py       # Five-target pruning sweep
+│   ├── run_pruning_experiment.py       # Configurable pruning sweep + held-out test
+│   ├── benchmark_sparse_inference.py   # Dense-vs-CSR latency/storage/memory benchmark
 │   └── analyze_pruning_results.py     # Plots and Pareto-frontier CSV
 └── tests/
     ├── test_dataset.py
     ├── test_masking.py
     ├── test_model.py
+    ├── test_checkpoint.py
+    ├── test_dataset_splits.py
+    ├── test_layerwise_pruning.py
+    ├── test_pruning_runner.py
+    ├── test_sparse_benchmark.py
+    ├── test_sparse_inference.py
     ├── test_pruning.py
     ├── test_tensor.py
     ├── test_tensor_milestone3.py
@@ -394,7 +418,7 @@ A Pareto frontier identifies trade-offs among the measured objectives; it does n
 
 ## Environment setup
 
-The project requires Python 3.12 or newer and uses `uv` for environment and dependency management. Direct dependencies are NumPy, scikit-learn, and Matplotlib; Pytest is used for development tests.
+The project requires Python 3.12 or newer and uses `uv` for environment and dependency management. Direct dependencies are NumPy, scikit-learn, SciPy, and Matplotlib; Pytest is used for development tests.
 
 From the repository root:
 
@@ -441,12 +465,26 @@ The baseline metrics include best and final validation results, training setting
 uv run python src/run_pruning_experiment.py
 ```
 
-The script trains models for target sparsities 0%, 30%, 50%, 70%, and 90%, then writes:
+The default config runs target sparsities 0%, 30%, 50%, 70%, and 90%. Results for each configuration are preserved under results/raw/experiments/<run-label>/, including per-seed CSV, summary CSV, and JSON history. Root-level pruning_sweep.csv/json files are convenient aliases for the most recent run. Validation-selected, target-sparsity checkpoints are saved under results/raw/checkpoints/.
 
-- `results/raw/pruning_sweep.csv`
-- `results/raw/pruning_sweep.json`
+### Configurable pruning experiments
 
-The JSON includes experiment settings, per-target summary metrics, and per-epoch training histories.
+The root config.json selects the dataset, seeds, epoch count, batch size, learning rate, target sparsities, pruning method, scope, importance function, schedule, warm-up, and one-shot prune epoch. Command-line arguments override these values.
+
+    uv run python src/run_pruning_experiment.py --seeds 42,43,44
+    uv run python src/run_pruning_experiment.py --method one_shot --prune-at-epoch 10
+    uv run python src/run_pruning_experiment.py --scope layerwise --importance taylor
+    uv run python src/run_pruning_experiment.py --dataset fashion-mnist --epochs 10 --batch-size 128 --seeds 42,43 --target-sparsities 0,0.7,0.9
+
+The last command downloads/caches Fashion-MNIST on first use and can take considerably longer than the digits smoke test. The test set is evaluated only after validation has selected a checkpoint.
+
+### Dense-versus-CSR inference benchmark
+
+After the pruning runner has saved checkpoints:
+
+    uv run python src/benchmark_sparse_inference.py --batch-sizes 1,64,256 --warmup 10 --repeats 100
+
+To benchmark a specific checkpoint, add --checkpoint followed by its path. The script writes CSV and JSON results under results/raw/. It checks dense/CSR logits and predictions before timing. Compare results on the target deployment machine; do not claim speedup unless the measurements demonstrate it.
 
 ### 4. Generate plots and Pareto analysis
 
@@ -474,20 +512,29 @@ When extending the library, add tests for the behavior being introduced. In part
 
 ## Outputs and generated files
 
-CSV and JSON outputs are intended to make experiments inspectable without loading model objects. The baseline script writes best and final model weights and biases to NumPy `.npz` archives. The pruning sweep currently records metrics and histories but does **not** export a checkpoint for every pruned target.
+CSV and JSON outputs are intended to make experiments inspectable without loading model objects. The baseline script writes best and final model weights and biases to NumPy `.npz` archives. The pruning runner saves a validation-selected checkpoint for each named configuration/seed/target under results/raw/checkpoints/. A checkpoint is eligible for selection only after its requested sparsity has been reached; the test set is then evaluated on that checkpoint. Named experiment summaries are preserved under results/raw/experiments/<run-label>/.
 
 Model checkpoints and generated plots are excluded from the standard source-control flow. They can be recreated by running the scripts; if a particular artifact needs to be shared, a release asset or dedicated artifact store is usually more suitable than committing generated binaries to the source tree.
 
-## Current limitations and next milestones
+## Implementation status and remaining validation
 
-### Not yet implemented or validated
+### Implemented in this branch
 
-- Sparse-aware inference using a CSR or other sparse representation
-- Tests proving sparse inference logits and predictions match dense masked inference
-- Fair latency benchmarks comparing dense and sparse computation
-- Actual process/runtime memory measurements; current sparsity counts and proposed storage estimates are not total-memory measurements
-- Repeated-seed experiments and a separate held-out test set
-- Experiments on a larger dataset such as Fashion-MNIST
+- CSR sparse inference for the three dense layers, retaining dense activations between layers
+- Equivalence tests comparing CSR logits (within floating-point tolerance) and exact predicted classes against dense masked inference
+- A benchmark script reporting dense/CSR median and p90 latency, conversion time, dense and CSR storage (including sparse indices), traced peak allocations, and process RSS delta where supported
+- Saved masked checkpoints for each seed/target combination
+- Configurable one-shot versus gradual pruning, global versus layer-wise scope, and magnitude versus Taylor importance scores
+- Repeated-seed runs (with a separate fixed split_seed) and stratified train/validation/test splits, with checkpoint selection based on validation only and test evaluation performed afterward
+- A Fashion-MNIST OpenML loader for larger-dataset experiments
+
+### Still requires an actual run on your machine
+
+- Run the experiment suite on your own configured Python environment as a final environment-specific check; CI is configured for Python 3.12 on Linux and Windows
+- Generate sparse latency and memory measurements on your target CPU; RSS deltas can be noisy, and the benchmark reports this limitation
+- Run several seeds (for example, 42, 43, 44) and inspect mean and standard deviation rather than relying on one seed
+- Execute the Fashion-MNIST experiment and record its results; the loader and runner support it, but no Fashion-MNIST accuracy or performance result is claimed here
+- Consider isolated-process memory profiling and deployment-specific benchmarking before claiming a production speedup
 
 ### Performance reporting principles
 
@@ -498,7 +545,7 @@ The project distinguishes four different quantities:
 3. **Weight-storage bytes:** representation-specific storage for weights (and, for sparse formats, their index arrays).
 4. **Measured inference latency and runtime memory:** empirical performance measurements under a stated environment and benchmark protocol.
 
-They are related but not interchangeable. A CSR representation stores indices as well as values; it may save weight storage at high sparsity but can be slower on small matrices due to sparse-operation overhead. Conversely, masked dense arrays still occupy dense-shaped parameter storage and can continue using dense matrix multiplication.
+They are related but not interchangeable. CSR stores indices as well as values; it may save weight storage at high sparsity but can be slower on small matrices due to sparse-operation overhead. Masked dense arrays still occupy dense-shaped parameter storage and can continue using dense matrix multiplication.
 
 ## Design decisions and trade-offs
 
