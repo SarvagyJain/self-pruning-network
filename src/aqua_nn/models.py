@@ -29,16 +29,32 @@ class MLP:
             (self.layer3, False),
         )
 
-    def predict_logits_dense(self, x):
-        """Run ordinary dense NumPy inference while respecting pruning masks."""
+    def predict_logits_dense(self, x, dense_weights=None):
+        """Run dense inference, optionally using pre-materialized effective weights.
+
+        Supplying dense_weights avoids reapplying masks on every timed inference
+        call. The arrays should represent the effective (already masked) weights.
+        """
         activations = np.asarray(x, dtype=np.float64)
         if activations.ndim != 2 or activations.shape[1] != self.layer1.weight.data.shape[0]:
             raise ValueError(
                 f"x must have shape (batch, {self.layer1.weight.data.shape[0]})"
             )
 
-        for layer, apply_relu in self._inference_layers():
-            weights = layer.weight.data * layer.mask
+        layers = self._inference_layers()
+        if dense_weights is not None:
+            if len(dense_weights) != len(layers):
+                raise ValueError("dense_weights must contain three weight matrices")
+            for (layer, _), weights in zip(layers, dense_weights):
+                if np.shape(weights) != layer.weight.data.shape:
+                    raise ValueError("Dense weight shape does not match model layer")
+
+        for index, (layer, apply_relu) in enumerate(layers):
+            weights = (
+                layer.weight.data * layer.mask
+                if dense_weights is None
+                else dense_weights[index]
+            )
             activations = activations @ weights + layer.bias.data
             if apply_relu:
                 np.maximum(activations, 0.0, out=activations)
