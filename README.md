@@ -4,7 +4,6 @@ A small neural-network library built from scratch with Python and NumPy. It impl
 
 The project is designed as an end-to-end machine-learning engineering study: **train a baseline model, gradually remove low-magnitude weight connections, measure the accuracy cost, and then determine whether the resulting sparsity provides practical inference or storage benefits.**
 
-> **Current limitation:** pruning currently creates binary masks and zeros in dense NumPy weight arrays. Sparse-aware inference and fair dense-versus-sparse performance benchmarking have not yet been implemented and validated. Do not interpret sparsity alone as proof of faster inference or lower total memory use.
 
 ---
 
