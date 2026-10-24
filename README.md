@@ -514,7 +514,7 @@ Model checkpoints and generated plots are excluded from the standard source-cont
 - A benchmark script reporting dense/CSR median and p90 latency, conversion time, dense and CSR storage (including sparse indices), traced peak allocations, and process RSS delta where supported
 - Saved masked checkpoints for each seed/target combination
 - Configurable one-shot versus gradual pruning, global versus layer-wise scope, and magnitude versus Taylor importance scores
-- Repeated-seed runs and stratified train/validation/test splits, with checkpoint selection based on validation only and test evaluation performed afterward
+- Repeated-seed runs (with a separate fixed split_seed) and stratified train/validation/test splits, with checkpoint selection based on validation only and test evaluation performed afterward
 - A Fashion-MNIST OpenML loader for larger-dataset experiments
 
 ### Still requires an actual run on your machine
