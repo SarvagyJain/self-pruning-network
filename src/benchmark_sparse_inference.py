@@ -58,14 +58,26 @@ def current_rss_bytes():
                 ("PeakPagefileUsage", ctypes.c_size_t),
             ]
 
-        counters = PROCESS_MEMORY_COUNTERS()
-        counters.cb = ctypes.sizeof(counters)
-        process = ctypes.windll.kernel32.GetCurrentProcess()
-        ok = ctypes.windll.psapi.GetProcessMemoryInfo(
-            process, ctypes.byref(counters), counters.cb
-        )
-        if ok:
-            return int(counters.WorkingSetSize)
+        try:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.GetProcessMemoryInfo.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(PROCESS_MEMORY_COUNTERS),
+                wintypes.DWORD,
+            ]
+            psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(counters)
+            process = kernel32.GetCurrentProcess()
+            ok = psapi.GetProcessMemoryInfo(
+                process, ctypes.byref(counters), counters.cb
+            )
+            if ok:
+                return int(counters.WorkingSetSize)
+        except (AttributeError, OSError, TypeError):
+            return None
 
     # macOS / other fallback: resource reports peak RSS, not current RSS.
     try:
