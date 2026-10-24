@@ -47,6 +47,7 @@ DEFAULT_CONFIG = {
     "schedule": "cubic",
     "warmup_epochs": 5,
     "prune_at_epoch": 10,
+    "run_name": "",
 }
 
 
@@ -76,6 +77,7 @@ def parse_args():
     parser.add_argument("--importance", choices=("magnitude", "taylor"))
     parser.add_argument("--warmup-epochs", type=int)
     parser.add_argument("--prune-at-epoch", type=int)
+    parser.add_argument("--run-name", help="Optional label to keep experiment outputs separate")
     return parser.parse_args()
 
 
@@ -90,6 +92,7 @@ def apply_cli_overrides(config: dict, args) -> dict:
         ("importance", "importance"),
         ("warmup_epochs", "warmup_epochs"),
         ("prune_at_epoch", "prune_at_epoch"),
+        ("run_name", "run_name"),
     ):
         value = getattr(args, cli_name, None)
         if value is not None:
@@ -189,6 +192,14 @@ def _target_label(target_sparsity):
     return f"{target_sparsity:.2f}".replace(".", "p")
 
 
+def _run_label(config):
+    raw = config.get("run_name") or (
+        f"{config['dataset']}_{config['method']}_{config['scope']}_{config['importance']}"
+    )
+    cleaned = "".join(char if char.isalnum() or char in "_-" else "_" for char in str(raw))
+    return cleaned.strip("_-") or "pruning_experiment"
+
+
 def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_val, X_test, y_test):
     model = MLP(input_size=X_train.shape[1], seed=seed)
     optimizer = Adam(model.parameters(), lr=float(config["learning_rate"]))
@@ -205,9 +216,10 @@ def train_experiment(target_sparsity, seed, config, X_train, y_train, X_val, y_v
     best_epoch = 0
     start_time = time.perf_counter()
 
+    run_label = _run_label(config)
     checkpoint_dir = RESULTS_DIR / "checkpoints"
     checkpoint_path = checkpoint_dir / (
-        f"{config['dataset']}_seed{seed}_target{_target_label(target_sparsity)}.npz"
+        f"{run_label}_seed{seed}_target{_target_label(target_sparsity)}.npz"
     )
 
     for epoch in range(epochs):
@@ -422,26 +434,41 @@ def main():
             )
 
     summaries = aggregate_runs(all_results)
+    experiment_dir = RESULTS_DIR / "experiments" / _run_label(config)
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+    run_csv = experiment_dir / "pruning_sweep_runs.csv"
+    summary_csv = experiment_dir / "pruning_sweep.csv"
+    report_json = experiment_dir / "pruning_sweep.json"
+
+    # Keep one archive per configuration. Root-level files remain convenient
+    # aliases for analysis and represent only the most recent configuration.
+    _write_csv(all_results, run_csv)
+    _write_csv(summaries, summary_csv)
     _write_csv(all_results, RESULTS_DIR / "pruning_sweep_runs.csv")
     _write_csv(summaries, RESULTS_DIR / "pruning_sweep.csv")
     report = {
+        "run_name": _run_label(config),
         "settings": config,
         "runs": all_results,
         "summary_by_target": summaries,
         "training_history": histories,
         "notes": [
-            "Best checkpoints are selected using validation accuracy.",
+            "Checkpoints are selected using validation accuracy only after target sparsity is reached.",
             "Held-out test accuracy is measured only after loading the selected checkpoint.",
             "Multiple-seed standard deviations are descriptive and may be zero for one seed.",
+            "Root-level result files point to the latest run; named configuration archives live under results/raw/experiments/.",
         ],
     }
+    with report_json.open("w", encoding="utf-8") as file:
+        json.dump(report, file, indent=2)
     with (RESULTS_DIR / "pruning_sweep.json").open("w", encoding="utf-8") as file:
         json.dump(report, file, indent=2)
 
-    print("\nPruning sweep complete.")
-    print(f"Per-run CSV: {RESULTS_DIR / 'pruning_sweep_runs.csv'}")
-    print(f"Summary CSV: {RESULTS_DIR / 'pruning_sweep.csv'}")
-    print(f"JSON report: {RESULTS_DIR / 'pruning_sweep.json'}")
+    print("\\nPruning sweep complete.")
+    print(f"Run label: {_run_label(config)}")
+    print(f"Per-run CSV: {run_csv}")
+    print(f"Summary CSV: {summary_csv}")
+    print(f"JSON report: {report_json}")
     for row in summaries:
         print(
             f"target={row['target_sparsity']:.0%} | "
