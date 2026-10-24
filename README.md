@@ -314,9 +314,20 @@ The global and layer-wise pruning implementations never revive already-pruned co
 
 The MLP now exposes predict_logits_dense and predict_logits_sparse. The sparse path converts each masked weight matrix to SciPy CSR once, then performs sparse-weight/dense-activation multiplication at inference time. The returned CSR matrices are snapshots: rebuild them after training or changing a mask. The benchmark reuses the same input batch, checks numeric logits and exact class predictions before timing, warms both paths, reports median and p90 latency, and keeps CSR conversion time separate from inference. Results are hardware- and batch-size-dependent; CSR is not assumed to be faster for this small MLP.
 
+A CI smoke benchmark was run on a GitHub-hosted Ubuntu runner using a 3-epoch digits run, 2 warm-up calls, and 10 timed repeats. These small-repeat measurements validate the pipeline only; they are not a deployment benchmark.
+
+| Target sparsity | Batch size | Dense median | CSR median | Dense/CSR ratio |
+|---:|---:|---:|---:|---:|
+| 0% | 1 | 0.0115 ms | 0.0681 ms | 0.168× |
+| 0% | 64 | 0.0592 ms | 0.2735 ms | 0.217× |
+| 50% | 1 | 0.0110 ms | 0.0593 ms | 0.185× |
+| 50% | 64 | 0.0736 ms | 0.1761 ms | 0.418× |
+
+A ratio below 1× means CSR was slower in this smoke run. This is expected to depend on matrix size, batch size, SciPy/BLAS builds, and hardware. It shows why sparsity or estimated storage reduction alone must not be presented as an inference speedup. The CI workflow uploads the full CSV/JSON smoke report as the artifact named sparse-inference-smoke-results.
+
 ## Experiments and current observations
 
-The pruning script trains five experiments from the same seed and configuration:
+The default config evaluates five target sparsities under the same model seed and data split:
 
 | Target sparsity | Meaning |
 |---:|---|
